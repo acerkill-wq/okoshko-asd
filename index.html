@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Окошко задач — АСД</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#1c2230;--mute:#6b7385;--acc:#2f6fed;--line:#e3e6ec;--mine:#e8f0ff;--his:#f1f8ee}
+  @media (prefers-color-scheme:dark){:root{--bg:#14171f;--card:#1d212c;--ink:#e8ebf2;--mute:#9aa2b5;--line:#2b3140;--mine:#1f2f52;--his:#1f3322}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:16px}
+  h1{font-size:22px;margin:8px 0 12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  input,textarea{width:100%;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:8px;padding:10px;margin:4px 0 8px}
+  textarea{min-height:110px;resize:vertical}
+  button{font:inherit;border:0;border-radius:8px;padding:10px 14px;background:var(--acc);color:#fff;cursor:pointer}
+  button.ghost{background:transparent;color:var(--acc);border:1px solid var(--line)}
+  button:disabled{opacity:.5}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .mute{color:var(--mute);font-size:14px}
+  .warn{background:#fff6e0;color:#5a4300;border-radius:8px;padding:10px;font-size:14px;margin-bottom:12px}
+  .task{cursor:pointer}
+  .badge{font-size:12px;border-radius:99px;padding:2px 8px;background:var(--line)}
+  .msg{border-radius:10px;padding:10px;margin:8px 0;white-space:pre-wrap;word-wrap:break-word}
+  .msg.regina{background:var(--mine)}.msg.ildar{background:var(--his)}
+  .msg small{display:block;color:var(--mute);margin-bottom:4px}
+  .hidden{display:none}
+  a{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Окошко задач</h1>
+  <div class="warn">Пароли, коды и доступы сюда не отправляем. Если нужен доступ, договоримся голосом или в личном сообщении.</div>
+
+  <div id="login" class="card hidden">
+    <b>Вход</b>
+    <input id="email" type="email" placeholder="Почта" autocomplete="username">
+    <input id="pass" type="password" placeholder="Пароль" autocomplete="current-password">
+    <button id="btnLogin">Войти</button>
+    <div id="loginErr" class="mute"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <span class="mute" id="who"></span><button class="ghost" id="btnOut">Выйти</button>
+    </div>
+
+    <div id="listView">
+      <div class="card">
+        <b>Новая задача</b>
+        <input id="title" placeholder="Коротко: что нужно сделать">
+        <textarea id="body" placeholder="Подробности. Можно надиктовать кнопкой ниже."></textarea>
+        <div class="row">
+          <button class="ghost" id="btnMic" type="button">🎤 Надиктовать</button>
+          <input id="files" type="file" multiple style="width:auto;border:0;padding:0">
+        </div>
+        <div class="row" style="margin-top:8px"><button id="btnCreate">Отправить задачу</button><span id="createInfo" class="mute"></span></div>
+      </div>
+      <div id="tasks"></div>
+    </div>
+
+    <div id="taskView" class="hidden">
+      <button class="ghost" id="btnBack">← К задачам</button>
+      <h2 id="tTitle"></h2>
+      <div id="thread"></div>
+      <div class="card">
+        <textarea id="reply" placeholder="Дописать к задаче"></textarea>
+        <input id="rfiles" type="file" multiple>
+        <div class="row"><button id="btnReply">Отправить</button><span id="replyInfo" class="mute"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+const sb = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const $ = id => document.getElementById(id);
+let currentTask = null, poll = null;
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = d => new Date(d).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+const STATUS = {new:'Новая', in_work:'В работе', done:'Готово'};
+
+async function init(){
+  const {data:{session}} = await sb.auth.getSession();
+  show(!!session);
+}
+function show(logged){
+  $('login').classList.toggle('hidden', logged);
+  $('app').classList.toggle('hidden', !logged);
+  if(logged){ sb.auth.getUser().then(r=>$('who').textContent=r.data.user?.email||''); loadTasks(); clearInterval(poll); poll=setInterval(()=>{ currentTask?openTask(currentTask,true):loadTasks(); },20000); }
+}
+$('btnLogin').onclick = async()=>{
+  $('loginErr').textContent='';
+  const {error} = await sb.auth.signInWithPassword({email:$('email').value.trim(),password:$('pass').value});
+  if(error) $('loginErr').textContent='Не получилось войти. Проверь почту и пароль.'; else show(true);
+};
+$('btnOut').onclick = async()=>{ await sb.auth.signOut(); show(false); };
+
+async function uploadFiles(input){
+  const out=[];
+  for(const f of input.files){
+    const path = `${Date.now()}_${f.name.replace(/[^\w.\-]+/g,'_')}`;
+    const {error} = await sb.storage.from('attachments').upload(path,f);
+    if(error) throw error;
+    out.push({name:f.name,path});
+  }
+  return out;
+}
+
+async function loadTasks(){
+  const {data:tasks} = await sb.from('tasks').select('*').order('created_at',{ascending:false});
+  const {data:msgs} = await sb.from('messages').select('task_id,author,created_at').order('created_at',{ascending:false});
+  const last = {}; (msgs||[]).forEach(m=>{ if(!last[m.task_id]) last[m.task_id]=m; });
+  $('tasks').innerHTML = (tasks||[]).map(t=>{
+    const l = last[t.id]; const answered = l && l.author==='ildar';
+    return `<div class="card task" data-id="${t.id}"><div class="row" style="justify-content:space-between">
+      <b>${esc(t.title)}</b><span class="badge">${STATUS[t.status]||t.status}</span></div>
+      <div class="mute">${fmt(t.created_at)}${answered?' · есть ответ':''}</div></div>`;
+  }).join('') || '<div class="mute">Задач пока нет.</div>';
+  document.querySelectorAll('.task').forEach(el=>el.onclick=()=>openTask(el.dataset.id));
+}
+
+$('btnCreate').onclick = async()=>{
+  const title=$('title').value.trim(); if(!title){ $('createInfo').textContent='Напиши, что нужно сделать.'; return; }
+  $('btnCreate').disabled=true; $('createInfo').textContent='Отправляю…';
+  try{
+    const files = await uploadFiles($('files'));
+    const {data:t,error} = await sb.from('tasks').insert({title}).select().single(); if(error) throw error;
+    const {error:e2} = await sb.from('messages').insert({task_id:t.id,author:'regina',body:$('body').value,files}); if(e2) throw e2;
+    $('title').value='';$('body').value='';$('files').value='';$('createInfo').textContent='Задача отправлена.';
+    loadTasks();
+  }catch(e){ $('createInfo').textContent='Ошибка: '+e.message; }
+  $('btnCreate').disabled=false;
+};
+
+async function openTask(id,quiet){
+  currentTask=id;
+  $('listView').classList.add('hidden'); $('taskView').classList.remove('hidden');
+  const {data:t} = await sb.from('tasks').select('*').eq('id',id).single();
+  const {data:msgs} = await sb.from('messages').select('*').eq('task_id',id).order('created_at');
+  $('tTitle').textContent=t.title+' · '+(STATUS[t.status]||t.status);
+  const rows = await Promise.all((msgs||[]).map(async m=>{
+    const links = await Promise.all((m.files||[]).map(async f=>{
+      const {data} = await sb.storage.from('attachments').createSignedUrl(f.path,3600);
+      return `<a href="${data?.signedUrl||'#'}" target="_blank" rel="noopener">📎 ${esc(f.name)}</a>`;
+    }));
+    return `<div class="msg ${m.author}"><small>${m.author==='regina'?'Вы':'Ильдар'} · ${fmt(m.created_at)}</small>${esc(m.body)}${links.length?'<br>'+links.join('<br>'):''}</div>`;
+  }));
+  $('thread').innerHTML=rows.join('');
+}
+$('btnBack').onclick=()=>{ currentTask=null; $('taskView').classList.add('hidden'); $('listView').classList.remove('hidden'); loadTasks(); };
+$('btnReply').onclick=async()=>{
+  const body=$('reply').value.trim(); if(!body && !$('rfiles').files.length) return;
+  $('btnReply').disabled=true;
+  try{
+    const files=await uploadFiles($('rfiles'));
+    const {error}=await sb.from('messages').insert({task_id:currentTask,author:'regina',body,files}); if(error) throw error;
+    $('reply').value='';$('rfiles').value='';openTask(currentTask);
+  }catch(e){ $('replyInfo').textContent='Ошибка: '+e.message; }
+  $('btnReply').disabled=false;
+};
+
+// Голосовой ввод (Chrome / Safari)
+const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+if(!SR){ $('btnMic').style.display='none'; } else {
+  let rec=null;
+  $('btnMic').onclick=()=>{
+    if(rec){ rec.stop(); return; }
+    rec=new SR(); rec.lang='ru-RU'; rec.continuous=true; rec.interimResults=false;
+    rec.onresult=e=>{ for(let i=e.resultIndex;i<e.results.length;i++) if(e.results[i].isFinal) $('body').value+=(($('body').value&&' ')+e.results[i][0].transcript.trim()); };
+    rec.onend=()=>{ rec=null; $('btnMic').textContent='🎤 Надиктовать'; };
+    rec.start(); $('btnMic').textContent='⏹ Остановить';
+  };
+}
+init();
+</script>
+</body>
+</html>
