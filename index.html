@@ -66,9 +66,11 @@
       <h2 id="tTitle"></h2>
       <div id="thread"></div>
       <div class="card">
-        <textarea id="reply" placeholder="Дописать к задаче"></textarea>
+        <b id="replyTitle">Правки и уточнения</b>
+        <div class="mute">Напишите, что переделать или доделать. Ответ придёт сюда же, в эту задачу.</div>
+        <textarea id="reply" placeholder="Например: заменить тему, добавить ссылку, переписать абзац"></textarea>
         <input id="rfiles" type="file" multiple>
-        <div class="row"><button id="btnReply">Отправить</button><span id="replyInfo" class="mute"></span></div>
+        <div class="row"><button id="btnReply">Отправить правки</button><span id="replyInfo" class="mute"></span></div>
       </div>
     </div>
   </div>
@@ -149,9 +151,10 @@ async function openTask(id,quiet){
       const {data} = await sb.storage.from('attachments').createSignedUrl(f.path,3600);
       return `<a href="${data?.signedUrl||'#'}" target="_blank" rel="noopener">📎 ${esc(f.name)}</a>`;
     }));
-    return `<div class="msg ${m.author}"><small>${m.author==='regina'?'Вы':'Ильдар'} · ${fmt(m.created_at)}</small>${esc(m.body)}${links.length?'<br>'+links.join('<br>'):''}</div>`;
+    return `<div class="msg ${m.author}"><small>${m.author==='regina'?'Вы':'Ильдар'} · ${fmt(m.created_at)}</small>${esc(m.body)}${links.length?'<br>'+links.join('<br>'):''}${m.author==='ildar'?'<br><button class="ghost fix" type="button" style="margin-top:8px">✏️ Внести правки</button>':''}</div>`;
   }));
   $('thread').innerHTML=rows.join('');
+  document.querySelectorAll('.fix').forEach(b=>b.onclick=()=>{ $('reply').focus(); $('reply').scrollIntoView({behavior:'smooth',block:'center'}); });
 }
 $('btnBack').onclick=()=>{ currentTask=null; $('taskView').classList.add('hidden'); $('listView').classList.remove('hidden'); loadTasks(); };
 $('btnReply').onclick=async()=>{
