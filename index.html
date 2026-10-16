@@ -26,6 +26,9 @@
   .msg{border-radius:10px;padding:10px;margin:8px 0;white-space:pre-wrap;word-wrap:break-word}
   .msg.regina{background:var(--mine)}.msg.ildar{background:var(--his)}
   .msg small{display:block;color:var(--mute);margin-bottom:4px}
+  .new{background:#e01655;color:#fff}
+  .pin{background:#ffe9a8;color:#5a4300}
+  .icon{background:transparent;border:1px solid var(--line);color:var(--ink);padding:4px 8px;font-size:14px}
   .hidden{display:none}
   a{color:var(--acc)}
 </style>
@@ -58,6 +61,7 @@
         </div>
         <div class="row" style="margin-top:8px"><button id="btnCreate">Отправить задачу</button><span id="createInfo" class="mute"></span></div>
       </div>
+      <div class="row" style="justify-content:space-between;margin:4px 0 8px"><b id="listTitle">Задачи</b><button class="ghost" id="btnArch" type="button">Показать архив</button></div>
       <div id="tasks"></div>
     </div>
 
@@ -114,18 +118,41 @@ async function uploadFiles(input){
   return out;
 }
 
+let showArchive=false;
 async function loadTasks(){
-  const {data:tasks} = await sb.from('tasks').select('*').order('created_at',{ascending:false});
+  const {data:tasks} = await sb.from('tasks').select('*').eq('archived',showArchive);
   const {data:msgs} = await sb.from('messages').select('task_id,author,created_at').order('created_at',{ascending:false});
   const last = {}; (msgs||[]).forEach(m=>{ if(!last[m.task_id]) last[m.task_id]=m; });
-  $('tasks').innerHTML = (tasks||[]).map(t=>{
-    const l = last[t.id]; const answered = l && l.author==='ildar';
-    return `<div class="card task" data-id="${t.id}"><div class="row" style="justify-content:space-between">
-      <b>${esc(t.title)}</b><span class="badge">${STATUS[t.status]||t.status}</span></div>
-      <div class="mute">${fmt(t.created_at)}${answered?' · есть ответ':''}</div></div>`;
-  }).join('') || '<div class="mute">Задач пока нет.</div>';
-  document.querySelectorAll('.task').forEach(el=>el.onclick=()=>openTask(el.dataset.id));
+  const list = (tasks||[]).map(t=>{
+    const l = last[t.id];
+    const isNew = !!l && l.author==='ildar' && (!t.last_read_at || new Date(l.created_at)>new Date(t.last_read_at));
+    return {...t, isNew, ts: new Date(l?l.created_at:t.created_at).getTime()};
+  }).sort((a,b)=> (b.pinned-a.pinned) || (b.ts-a.ts));
+  $('listTitle').textContent = showArchive?'Архив':'Задачи';
+  $('btnArch').textContent = showArchive?'К задачам':'Показать архив';
+  $('tasks').innerHTML = list.map(t=>`<div class="card task" data-id="${t.id}"><div class="row" style="justify-content:space-between">
+      <b>${t.pinned?'📌 ':''}${esc(t.title)}</b>
+      <span class="row">${t.isNew?'<span class="badge new">NEW</span>':''}<span class="badge">${STATUS[t.status]||t.status}</span></span></div>
+      <div class="row" style="justify-content:space-between;margin-top:6px"><span class="mute">${fmt(t.ts)}</span>
+      <span class="row">${showArchive?'':`<button class="icon" data-act="pin" type="button">${t.pinned?'Открепить':'📌 Закрепить'}</button>`}
+      <button class="icon" data-act="arch" type="button">${showArchive?'Вернуть из архива':'🗄 В архив'}</button></span></div></div>`).join('')
+    || `<div class="mute">${showArchive?'В архиве пусто.':'Задач пока нет.'}</div>`;
+  document.querySelectorAll('.task').forEach(el=>{
+    el.onclick=()=>openTask(el.dataset.id);
+    el.querySelectorAll('button[data-act]').forEach(b=>b.onclick=async e=>{
+      e.stopPropagation();
+      const t=list.find(x=>x.id===el.dataset.id);
+      if(b.dataset.act==='pin'){
+        if(!t.pinned && list.filter(x=>x.pinned).length>=5){ alert('Можно закрепить не больше 5 задач.'); return; }
+        await sb.from('tasks').update({pinned:!t.pinned}).eq('id',t.id);
+      } else {
+        await sb.from('tasks').update({archived:!showArchive, pinned:false}).eq('id',t.id);
+      }
+      loadTasks();
+    });
+  });
 }
+$('btnArch').onclick=()=>{ showArchive=!showArchive; loadTasks(); };
 
 $('btnCreate').onclick = async()=>{
   const title=$('title').value.trim(); if(!title){ $('createInfo').textContent='Напиши, что нужно сделать.'; return; }
@@ -144,6 +171,7 @@ async function openTask(id,quiet){
   currentTask=id;
   $('listView').classList.add('hidden'); $('taskView').classList.remove('hidden');
   const {data:t} = await sb.from('tasks').select('*').eq('id',id).single();
+  sb.from('tasks').update({last_read_at:new Date().toISOString()}).eq('id',id).then(()=>{});
   const {data:msgs} = await sb.from('messages').select('*').eq('task_id',id).order('created_at');
   $('tTitle').textContent=t.title+' · '+(STATUS[t.status]||t.status);
   const rows = await Promise.all((msgs||[]).map(async m=>{
