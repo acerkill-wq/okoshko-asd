@@ -36,8 +36,7 @@
   <div class="warn">Пароли, коды и доступы сюда не отправляем. Если нужен доступ, договоримся голосом или в личном сообщении.</div>
 
   <div id="login" class="card hidden">
-    <b>Вход</b>
-    <input id="email" type="email" placeholder="Почта" autocomplete="username">
+    <b>Введите пароль</b>
     <input id="pass" type="password" placeholder="Пароль" autocomplete="current-password">
     <button id="btnLogin">Войти</button>
     <div id="loginErr" class="mute"></div>
@@ -93,12 +92,12 @@ async function init(){
 function show(logged){
   $('login').classList.toggle('hidden', logged);
   $('app').classList.toggle('hidden', !logged);
-  if(logged){ sb.auth.getUser().then(r=>$('who').textContent=r.data.user?.email||''); loadTasks(); clearInterval(poll); poll=setInterval(()=>{ currentTask?openTask(currentTask,true):loadTasks(); },20000); }
+  if(logged){ sb.auth.getUser().then(r=>$('who').textContent='Окошко задач'); loadTasks(); clearInterval(poll); poll=setInterval(()=>{ currentTask?openTask(currentTask,true):loadTasks(); },20000); }
 }
 $('btnLogin').onclick = async()=>{
   $('loginErr').textContent='';
-  const {error} = await sb.auth.signInWithPassword({email:$('email').value.trim(),password:$('pass').value});
-  if(error) $('loginErr').textContent='Не получилось войти. Проверь почту и пароль.'; else show(true);
+  const {error} = await sb.auth.signInWithPassword({email:CONFIG.LOGIN_EMAIL,password:$('pass').value});
+  if(error) $('loginErr').textContent='Не получилось войти. Проверьте пароль.'; else show(true);
 };
 $('btnOut').onclick = async()=>{ await sb.auth.signOut(); show(false); };
 
