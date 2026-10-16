@@ -98,7 +98,7 @@ async function init(){
 function show(logged){
   $('login').classList.toggle('hidden', logged);
   $('app').classList.toggle('hidden', !logged);
-  if(logged){ sb.auth.getUser().then(r=>$('who').textContent='Окошко задач'); loadTasks(); clearInterval(poll); poll=setInterval(()=>{ currentTask?openTask(currentTask,true):loadTasks(); },20000); }
+  if(logged){ sb.auth.getUser().then(r=>$('who').textContent='Окошко задач'); loadTasks(); clearInterval(poll); poll=setInterval(()=>{ currentTask?openTask(currentTask,true):loadTasks(); },6000); }
 }
 $('btnLogin').onclick = async()=>{
   $('loginErr').textContent='';
